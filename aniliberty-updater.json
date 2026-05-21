@@ -1,0 +1,20 @@
+{
+    "id": "aniliberty-updater",
+    "name": "AniLiberty Updater",
+    "version": "1.0.0",
+    "manifestURI": "https://raw.githubusercontent.com/SevaGetz/AnilibertyUpdaterSeanime/main/aniliberty-updater.json",
+    "language": "typescript",
+    "type": "plugin",
+    "description": "Автоматически отслеживает обновления торрентов на AniLiberty и уведомляет об изменениях в Seanime.",
+    "author": "SevaGetz",
+    "icon": "https://aniliberty.top/favicon.ico",
+    "website": "https://github.com/SevaGetz/AnilibertyUpdater",
+    "readme": "",
+    "notes": "",
+    "lang": "multi",
+    "payloadURI": "https://raw.githubusercontent.com/SevaGetz/AnilibertyUpdaterSeanime/main/aniliberty-updater.ts",
+    "plugin": {
+        "version": "1",
+        "permissions": {}
+    }
+}

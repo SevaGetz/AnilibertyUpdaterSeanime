@@ -1,0 +1,1 @@
+Aniliberty updater for seanime
