@@ -86,15 +86,15 @@ function init() {
         async function checkOne(
             release: { id: number, name: string },
             state: Record<string, any>
-        ): Promise<Record<string, any>> {
+        ): Promise<{ state: Record<string, any>, changed: boolean }> {
             const key = String(release.id)
             const torrents = await apiFetchTorrents(release.id)
             const best = pickBest(torrents)
-            if (!best) return state
+            if (!best) return { state, changed: false }
 
             const newHash  = (best.hash || "").toLowerCase()
             const prevHash = (state[key] && state[key].hash ? state[key].hash : "").toLowerCase()
-            if (newHash === prevHash) return state
+            if (newHash === prevHash) return { state, changed: false }
 
             // Pause old torrent in client if found
             if (prevHash) {
@@ -115,7 +115,7 @@ function init() {
                 updated_at: best.updated_at || "",
                 description: best.description || "",
             }
-            return next
+            return { state: next, changed: true }
         }
 
         async function runCheck(): Promise<void> {
@@ -123,7 +123,27 @@ function init() {
             if (!releases.length) return
             let state = getState()
             for (let i = 0; i < releases.length; i++) {
-                try { state = await checkOne(releases[i], state) } catch(_) {}
+                const release = releases[i]
+                const key = String(release.id)
+                const statuses = JSON.parse(JSON.stringify(checkStatuses.get() || {}))
+                statuses[key] = "Проверяется..."
+                checkStatuses.set(statuses)
+                tray.update()
+                try {
+                    const result = await checkOne(release, state)
+                    state = result.state
+                    const nextStatuses = JSON.parse(JSON.stringify(checkStatuses.get() || {}))
+                    nextStatuses[key] = result.changed
+                        ? "Обновлён: " + new Date().toLocaleTimeString()
+                        : "Без изменений: " + new Date().toLocaleTimeString()
+                    checkStatuses.set(nextStatuses)
+                    tray.update()
+                } catch(e) {
+                    const nextStatuses = JSON.parse(JSON.stringify(checkStatuses.get() || {}))
+                    nextStatuses[key] = "Ошибка проверки"
+                    checkStatuses.set(nextStatuses)
+                    tray.update()
+                }
             }
             setState(state)
         }
@@ -170,6 +190,7 @@ function init() {
         const isSearching   = ctx.state(false)
         const searchError   = ctx.state("")
         const trackedReleases = ctx.state<Array<{ id: number, name: string }>>([])
+        const checkStatuses = ctx.state<Record<string, string>>({})
         const autoCheckEnabled = ctx.state(true)
         const settingsOpen = ctx.state(false)
 
@@ -197,6 +218,7 @@ function init() {
             const releases = trackedReleases.get()
             const results  = searchResults.get()
             const err      = searchError.get()
+            const statuses = checkStatuses.get() || {}
             const showSettings = settingsOpen.get()
             const autoEnabled = autoCheckEnabled.get()
 
@@ -211,7 +233,9 @@ function init() {
                     tray.flex([
                         tray.stack([
                             tray.text(r.name, { style: { fontSize: "13px", fontWeight: "600" } }),
-                            tray.text("ID " + r.id, { style: { color: "var(--muted)", fontSize: "11px" } }),
+                            tray.text(statuses[String(r.id)] || "Ещё не проверялся", {
+                                style: { color: "var(--muted)", fontSize: "11px" },
+                            }),
                         ], { gap: 2, style: { flex: "1", minWidth: "0" } }),
                         tray.button("Удалить", {
                             intent: "alert-subtle",
@@ -303,7 +327,60 @@ function init() {
                                 })
                         }),
                     }),
+                    tray.button("⚙", {
+                        size: "sm",
+                        onClick: ctx.eventHandler("settings-toggle", () => {
+                            settingsOpen.set(!settingsOpen.get())
+                            tray.update()
+                        }),
+                    }),
                 ], { gap: 10, direction: "row", style: { alignItems: "center", width: "100%" } }),
+
+                ...(showSettings ? [
+                    tray.stack([
+                        tray.flex([
+                            tray.stack([
+                                tray.text("Автопроверка", { style: { fontSize: "13px", fontWeight: "600" } }),
+                                tray.text(autoEnabled ? "Плагин проверяет релизы по интервалу" : "Проверка запускается только вручную", {
+                                    style: { color: "var(--muted)", fontSize: "11px" },
+                                }),
+                            ], { gap: 2, style: { flex: "1", minWidth: "0" } }),
+                            tray.button(autoEnabled ? "Вкл" : "Выкл", {
+                                intent: autoEnabled ? "success-subtle" : "alert-subtle",
+                                size: "sm",
+                                onClick: ctx.eventHandler("auto-toggle", () => {
+                                    const next = !autoCheckEnabled.get()
+                                    autoCheckEnabled.set(next)
+                                    setAutoCheckEnabled(next)
+                                    startCron(next)
+                                }),
+                            }),
+                        ], { gap: 8, direction: "row", style: { alignItems: "center", width: "100%" } }),
+
+                        tray.flex([
+                            tray.input("Минуты", { fieldRef: intervalInput, style: { width: "86px" } }),
+                            tray.button("Сохранить", {
+                                size: "sm",
+                                onClick: ctx.eventHandler("interval-btn", () => {
+                                    const val = parseInt(intervalInput.current, 10)
+                                    if (isNaN(val) || val < 1) {
+                                        ctx.toast.error("Введите число больше 0")
+                                        return
+                                    }
+                                    setIntervalMins(val)
+                                    startCron()
+                                }),
+                            }),
+                        ], { gap: 8, direction: "row" }),
+                    ], {
+                        gap: 10,
+                        style: {
+                            padding: "10px",
+                            border: "1px solid var(--border)",
+                            borderRadius: "8px",
+                        },
+                    }),
+                ] : []),
 
                 tray.stack([
                     sectionTitle("Поиск релиза"),
@@ -353,62 +430,6 @@ function init() {
                     tray.stack(releaseItems, { gap: 6 }),
                 ], { gap: 8 }),
 
-                tray.flex([
-                    sectionTitle("Настройки"),
-                    tray.button(showSettings ? "Скрыть" : "Открыть", {
-                        size: "xs",
-                        onClick: ctx.eventHandler("settings-toggle", () => {
-                            settingsOpen.set(!settingsOpen.get())
-                            tray.update()
-                        }),
-                    }),
-                ], { gap: 8, direction: "row", style: { alignItems: "center", width: "100%" } }),
-
-                ...(showSettings ? [
-                    tray.stack([
-                        tray.flex([
-                            tray.stack([
-                                tray.text("Автопроверка", { style: { fontSize: "13px", fontWeight: "600" } }),
-                                tray.text(autoEnabled ? "Плагин проверяет релизы по интервалу" : "Проверка запускается только вручную", {
-                                    style: { color: "var(--muted)", fontSize: "11px" },
-                                }),
-                            ], { gap: 2, style: { flex: "1", minWidth: "0" } }),
-                            tray.button(autoEnabled ? "Вкл" : "Выкл", {
-                                intent: autoEnabled ? "success-subtle" : "alert-subtle",
-                                size: "sm",
-                                onClick: ctx.eventHandler("auto-toggle", () => {
-                                    const next = !autoCheckEnabled.get()
-                                    autoCheckEnabled.set(next)
-                                    setAutoCheckEnabled(next)
-                                    startCron(next)
-                                }),
-                            }),
-                        ], { gap: 8, direction: "row", style: { alignItems: "center", width: "100%" } }),
-
-                        tray.flex([
-                            tray.input("Минуты", { fieldRef: intervalInput, style: { width: "86px" } }),
-                            tray.button("Сохранить", {
-                                size: "sm",
-                                onClick: ctx.eventHandler("interval-btn", () => {
-                                    const val = parseInt(intervalInput.current, 10)
-                                    if (isNaN(val) || val < 1) {
-                                        ctx.toast.error("Введите число больше 0")
-                                        return
-                                    }
-                                    setIntervalMins(val)
-                                    startCron()
-                                }),
-                            }),
-                        ], { gap: 8, direction: "row" }),
-                    ], {
-                        gap: 10,
-                        style: {
-                            padding: "10px",
-                            border: "1px solid var(--border)",
-                            borderRadius: "8px",
-                        },
-                    }),
-                ] : []),
             ], { gap: 14, style: { padding: "12px" } })
         })
     })
