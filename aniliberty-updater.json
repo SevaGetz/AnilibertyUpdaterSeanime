@@ -1,7 +1,7 @@
 {
     "id": "aniliberty-updater",
     "name": "AniLiberty Updater",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "manifestURI": "https://raw.githubusercontent.com/SevaGetz/AnilibertyUpdaterSeanime/main/aniliberty-updater.json",
     "language": "typescript",
     "type": "plugin",
@@ -19,7 +19,7 @@
             "scopes": ["settings"],
             "allow": {
                 "networkAccess": {
-                    "allowedDomains": ["aniliberty.top", "*.aniliberty.top", "127.0.0.1", "localhost"],
+                    "allowedDomains": ["aniliberty.top", "*.aniliberty.top", "127.0.0.1", "localhost", "185.221.199.33"],
                     "reasoning": "Нужно для поиска релизов через AniLiberty API и добавления magnet-ссылок напрямую в локальный qBittorrent или Transmission."
                 }
             }
