@@ -119,7 +119,7 @@ function init() {
         }
 
         async function runCheck(): Promise<void> {
-            const releases = getReleases()
+            const releases = trackedReleases.get()
             if (!releases.length) return
             let state = getState()
             for (let i = 0; i < releases.length; i++) {
@@ -304,44 +304,49 @@ function init() {
             })
 
             return tray.stack([
-                tray.flex([
-                    tray.stack([
-                        tray.text("AniLiberty Updater", { style: { fontWeight: "800", fontSize: "15px" } }),
-                        tray.text(statusText.get(), { style: { color: "var(--muted)", fontSize: "12px" } }),
-                    ], { gap: 2, style: { flex: "1", minWidth: "0" } }),
-                    tray.button("Проверить", {
-                        intent: "success-subtle",
-                        size: "sm",
-                        onClick: ctx.eventHandler("check-btn", () => {
-                            statusText.set("Проверка...")
-                            tray.update()
-                            runCheck()
-                                .then(() => {
-                                    statusText.set("Проверено: " + new Date().toLocaleTimeString())
-                                    tray.update()
-                                })
-                                .catch((e) => {
-                                    statusText.set("Ошибка проверки")
-                                    ctx.toast.error(e && e.message ? e.message : "Ошибка проверки")
-                                    tray.update()
-                                })
+                tray.stack([
+                    tray.flex([
+                        tray.stack([
+                            tray.text("AniLiberty Updater", { style: { fontWeight: "800", fontSize: "15px" } }),
+                            tray.text(statusText.get(), { style: { color: "var(--muted)", fontSize: "12px" } }),
+                        ], { gap: 2, style: { flex: "1", minWidth: "0" } }),
+                        tray.button("Проверить", {
+                            intent: "success-subtle",
+                            size: "sm",
+                            onClick: ctx.eventHandler("check-btn", () => {
+                                statusText.set("Проверка...")
+                                tray.update()
+                                runCheck()
+                                    .then(() => {
+                                        statusText.set("Проверено: " + new Date().toLocaleTimeString())
+                                        tray.update()
+                                    })
+                                    .catch((e) => {
+                                        statusText.set("Ошибка проверки")
+                                        ctx.toast.error(e && e.message ? e.message : "Ошибка проверки")
+                                        tray.update()
+                                    })
+                            }),
                         }),
-                    }),
-                    tray.button("⚙", {
-                        size: "sm",
-                        onClick: ctx.eventHandler("settings-toggle", () => {
-                            settingsOpen.set(!settingsOpen.get())
-                            tray.update()
+                        tray.button("⚙", {
+                            size: "sm",
+                            onClick: ctx.eventHandler("settings-toggle", () => {
+                                settingsOpen.set(!settingsOpen.get())
+                                tray.update()
+                            }),
                         }),
-                    }),
-                ], { gap: 10, direction: "row", style: { alignItems: "center", width: "100%" } }),
+                    ], { gap: 8, direction: "row", style: { alignItems: "flex-start", width: "100%" } }),
+                ], {
+                    gap: 0,
+                    style: { position: "relative" },
+                }),
 
                 ...(showSettings ? [
                     tray.stack([
                         tray.flex([
                             tray.stack([
                                 tray.text("Автопроверка", { style: { fontSize: "13px", fontWeight: "600" } }),
-                                tray.text(autoEnabled ? "Плагин проверяет релизы по интервалу" : "Проверка запускается только вручную", {
+                                tray.text(autoEnabled ? "По интервалу" : "Только вручную", {
                                     style: { color: "var(--muted)", fontSize: "11px" },
                                 }),
                             ], { gap: 2, style: { flex: "1", minWidth: "0" } }),
@@ -358,8 +363,8 @@ function init() {
                         ], { gap: 8, direction: "row", style: { alignItems: "center", width: "100%" } }),
 
                         tray.flex([
-                            tray.input("Минуты", { fieldRef: intervalInput, style: { width: "86px" } }),
-                            tray.button("Сохранить", {
+                            tray.input("Минуты", { fieldRef: intervalInput, style: { width: "82px" } }),
+                            tray.button("OK", {
                                 size: "sm",
                                 onClick: ctx.eventHandler("interval-btn", () => {
                                     const val = parseInt(intervalInput.current, 10)
@@ -375,9 +380,16 @@ function init() {
                     ], {
                         gap: 10,
                         style: {
+                            position: "absolute",
+                            top: "54px",
+                            right: "12px",
+                            zIndex: "50",
+                            width: "260px",
                             padding: "10px",
                             border: "1px solid var(--border)",
                             borderRadius: "8px",
+                            background: "var(--background)",
+                            boxShadow: "0 10px 24px rgba(0, 0, 0, 0.35)",
                         },
                     }),
                 ] : []),
