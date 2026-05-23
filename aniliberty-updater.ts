@@ -21,6 +21,7 @@ function init() {
         const KEY_STATE  = "aniliberty-updater:state"
         const KEY_LIST   = "aniliberty-updater:releases"
         const KEY_MINS   = "aniliberty-updater:interval"
+        const KEY_AUTO   = "aniliberty-updater:auto-check"
 
         // ── Storage helpers (call only inside callbacks, never at init time) ───
         function getState(): Record<string, any> {
@@ -40,6 +41,17 @@ function init() {
         }
         function setIntervalMins(m: number): void {
             try { $storage.set(KEY_MINS, m) } catch(_) {}
+        }
+        function getAutoCheckEnabled(): boolean {
+            try {
+                const v = $storage.get(KEY_AUTO)
+                return typeof v === "boolean" ? v : true
+            } catch(_) {
+                return true
+            }
+        }
+        function setAutoCheckEnabled(v: boolean): void {
+            try { $storage.set(KEY_AUTO, v) } catch(_) {}
         }
 
         // ── Torrent picking ────────────────────────────────────────────────────
@@ -122,10 +134,16 @@ function init() {
         // Keep a reference to the cancel function so we can restart with new interval
         let cancelInterval: (() => void) | null = null
 
-        function startCron(): void {
+        function startCron(autoOverride?: boolean): void {
             if (cancelInterval) {
                 cancelInterval()
                 cancelInterval = null
+            }
+            const auto = typeof autoOverride === "boolean" ? autoOverride : autoCheckEnabled.get()
+            if (!auto) {
+                statusText.set("Автопроверка выключена")
+                tray.update()
+                return
             }
             const mins = getIntervalMins()
             const ms = mins * 60 * 1000
@@ -151,6 +169,9 @@ function init() {
         const searchResults = ctx.state<any[]>([])
         const isSearching   = ctx.state(false)
         const searchError   = ctx.state("")
+        const trackedReleases = ctx.state<Array<{ id: number, name: string }>>([])
+        const autoCheckEnabled = ctx.state(true)
+        const settingsOpen = ctx.state(false)
 
         // ── Tray ───────────────────────────────────────────────────────────────
         const tray = ctx.newTray({
@@ -163,16 +184,21 @@ function init() {
         // Start cron after tray is created (still inside register, but after refs)
         // Use ctx.setTimeout so it runs after the current call stack finishes
         ctx.setTimeout(() => {
+            trackedReleases.set(getReleases())
+            const auto = getAutoCheckEnabled()
+            autoCheckEnabled.set(auto)
             intervalInput.setValue(String(getIntervalMins()))
-            startCron()
+            startCron(auto)
         }, 0)
 
         // ── Render ─────────────────────────────────────────────────────────────
         tray.render(() => {
             // $storage reads are safe inside render (it's a callback)
-            const releases = getReleases()
+            const releases = trackedReleases.get()
             const results  = searchResults.get()
             const err      = searchError.get()
+            const showSettings = settingsOpen.get()
+            const autoEnabled = autoCheckEnabled.get()
 
             const sectionTitle = (title: string, meta?: string) =>
                 tray.text(meta ? title + " (" + meta + ")" : title, {
@@ -191,7 +217,9 @@ function init() {
                             intent: "alert-subtle",
                             size: "xs",
                             onClick: ctx.eventHandler("rm-" + r.id, () => {
-                                setReleases(getReleases().filter(x => x.id !== r.id))
+                                const next = trackedReleases.get().filter(x => x.id !== r.id)
+                                setReleases(next)
+                                trackedReleases.set(next)
                                 const s = getState()
                                 delete s[String(r.id)]
                                 setState(s)
@@ -224,13 +252,14 @@ function init() {
                         intent: "primary-subtle",
                         size: "xs",
                         onClick: ctx.eventHandler("add-" + i, () => {
-                            const list = getReleases()
+                            const list = trackedReleases.get().slice()
                             if (list.find((x: any) => x.id === item.id)) {
                                 ctx.toast.warning("Уже отслеживается")
                                 return
                             }
                             list.push({ id: item.id, name: title })
                             setReleases(list)
+                            trackedReleases.set(list)
                             ctx.toast.success("Добавлен: " + title)
                             searchResults.set([])
                             searchError.set("")
@@ -324,24 +353,62 @@ function init() {
                     tray.stack(releaseItems, { gap: 6 }),
                 ], { gap: 8 }),
 
-                tray.stack([
-                    sectionTitle("Интервал проверки"),
-                    tray.flex([
-                        tray.input("Минуты", { fieldRef: intervalInput, style: { width: "86px" } }),
-                        tray.button("Сохранить", {
-                            size: "sm",
-                            onClick: ctx.eventHandler("interval-btn", () => {
-                                const val = parseInt(intervalInput.current, 10)
-                                if (isNaN(val) || val < 1) {
-                                    ctx.toast.error("Введите число больше 0")
-                                    return
-                                }
-                                setIntervalMins(val)
-                                startCron()
-                            }),
+                tray.flex([
+                    sectionTitle("Настройки"),
+                    tray.button(showSettings ? "Скрыть" : "Открыть", {
+                        size: "xs",
+                        onClick: ctx.eventHandler("settings-toggle", () => {
+                            settingsOpen.set(!settingsOpen.get())
+                            tray.update()
                         }),
-                    ], { gap: 8, direction: "row" }),
-                ], { gap: 8 }),
+                    }),
+                ], { gap: 8, direction: "row", style: { alignItems: "center", width: "100%" } }),
+
+                ...(showSettings ? [
+                    tray.stack([
+                        tray.flex([
+                            tray.stack([
+                                tray.text("Автопроверка", { style: { fontSize: "13px", fontWeight: "600" } }),
+                                tray.text(autoEnabled ? "Плагин проверяет релизы по интервалу" : "Проверка запускается только вручную", {
+                                    style: { color: "var(--muted)", fontSize: "11px" },
+                                }),
+                            ], { gap: 2, style: { flex: "1", minWidth: "0" } }),
+                            tray.button(autoEnabled ? "Вкл" : "Выкл", {
+                                intent: autoEnabled ? "success-subtle" : "alert-subtle",
+                                size: "sm",
+                                onClick: ctx.eventHandler("auto-toggle", () => {
+                                    const next = !autoCheckEnabled.get()
+                                    autoCheckEnabled.set(next)
+                                    setAutoCheckEnabled(next)
+                                    startCron(next)
+                                }),
+                            }),
+                        ], { gap: 8, direction: "row", style: { alignItems: "center", width: "100%" } }),
+
+                        tray.flex([
+                            tray.input("Минуты", { fieldRef: intervalInput, style: { width: "86px" } }),
+                            tray.button("Сохранить", {
+                                size: "sm",
+                                onClick: ctx.eventHandler("interval-btn", () => {
+                                    const val = parseInt(intervalInput.current, 10)
+                                    if (isNaN(val) || val < 1) {
+                                        ctx.toast.error("Введите число больше 0")
+                                        return
+                                    }
+                                    setIntervalMins(val)
+                                    startCron()
+                                }),
+                            }),
+                        ], { gap: 8, direction: "row" }),
+                    ], {
+                        gap: 10,
+                        style: {
+                            padding: "10px",
+                            border: "1px solid var(--border)",
+                            borderRadius: "8px",
+                        },
+                    }),
+                ] : []),
             ], { gap: 14, style: { padding: "12px" } })
         })
     })
