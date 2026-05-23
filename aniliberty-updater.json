@@ -1,7 +1,7 @@
 {
     "id": "aniliberty-updater",
     "name": "AniLiberty Updater",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "manifestURI": "https://raw.githubusercontent.com/SevaGetz/AnilibertyUpdaterSeanime/main/aniliberty-updater.json",
     "language": "typescript",
     "type": "plugin",
@@ -19,8 +19,8 @@
             "scopes": [],
             "allow": {
                 "networkAccess": {
-                    "allowedDomains": ["aniliberty.top", "*.aniliberty.top"],
-                    "reasoning": "Нужно для поиска релизов и проверки торрент-обновлений через AniLiberty API."
+                    "allowedDomains": ["aniliberty.top", "*.aniliberty.top", "127.0.0.1", "localhost"],
+                    "reasoning": "Нужно для поиска релизов через AniLiberty API и добавления magnet-ссылок в локальный Seanime torrent client API."
                 }
             }
         }

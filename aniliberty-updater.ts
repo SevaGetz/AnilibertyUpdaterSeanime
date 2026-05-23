@@ -18,6 +18,7 @@ function init() {
 
         // ── Constants ──────────────────────────────────────────────────────────
         const API_BASE   = "https://aniliberty.top/api/v1"
+        const SEANIME_API = "http://127.0.0.1:43211/api/v1"
         const KEY_STATE  = "aniliberty-updater:state"
         const KEY_LIST   = "aniliberty-updater:releases"
         const KEY_MINS   = "aniliberty-updater:interval"
@@ -82,32 +83,72 @@ function init() {
             return Array.isArray(d) ? d : (d && d.data ? d.data : [])
         }
 
+        async function apiSeanime(path: string, options?: { method?: string, body?: any }): Promise<any> {
+            const r = await ctx.fetch(SEANIME_API + path, {
+                method: options && options.method ? options.method : "GET",
+                headers: { "Content-Type": "application/json" },
+                body: options && options.body ? JSON.stringify(options.body) : undefined,
+                timeout: 20,
+            })
+            const d = r.json()
+            if (!r.ok || (d && d.error)) {
+                throw new Error(d && d.error ? d.error : "Seanime API: HTTP " + r.status)
+            }
+            return d && typeof d === "object" && "data" in d ? d.data : d
+        }
+
+        async function getDownloadDestination(): Promise<string> {
+            try {
+                const status = await apiSeanime("/status")
+                const settings = status && status.settings ? status.settings : {}
+                const library = settings.library || {}
+                return library.libraryPath || (library.libraryPaths && library.libraryPaths[0]) || ""
+            } catch(_) {
+                return ""
+            }
+        }
+
+        async function downloadMagnet(magnet: string): Promise<void> {
+            if (!magnet) throw new Error("У торрента нет magnet-ссылки")
+            await apiSeanime("/torrent-client/download", {
+                method: "POST",
+                body: {
+                    magnet: magnet,
+                    destination: await getDownloadDestination(),
+                },
+            })
+        }
+
         // ── Core check ────────────────────────────────────────────────────────
         async function checkOne(
             release: { id: number, name: string },
             state: Record<string, any>
-        ): Promise<{ state: Record<string, any>, changed: boolean }> {
+        ): Promise<{ state: Record<string, any>, changed: boolean, message: string }> {
             const key = String(release.id)
             const torrents = await apiFetchTorrents(release.id)
             const best = pickBest(torrents)
-            if (!best) return { state, changed: false }
+            if (!best) return { state, changed: false, message: "Торренты не найдены" }
 
             const newHash  = (best.hash || "").toLowerCase()
             const prevHash = (state[key] && state[key].hash ? state[key].hash : "").toLowerCase()
-            if (newHash === prevHash) return { state, changed: false }
+            let all: any[] = []
+            try { all = await ctx.torrentClient.getTorrents() } catch(_) {}
+            const alreadyInClient = all.find((t: any) => (t.hash || "").toLowerCase() === newHash)
+            if (newHash === prevHash && alreadyInClient) {
+                return { state, changed: false, message: "Уже в торрент-клиенте" }
+            }
 
             // Pause old torrent in client if found
             if (prevHash) {
                 try {
-                    const all = await ctx.torrentClient.getTorrents()
                     const old = all.find((t: any) => (t.hash || "").toLowerCase() === prevHash)
                     if (old) await ctx.torrentClient.pauseTorrents([old.hash])
                 } catch(_) {}
             }
 
             ctx.toast.info("AniLiberty: обновление «" + release.name + "»")
-            ctx.screen.navigateTo("/torrents", { magnet: best.magnet })
-            ctx.toast.success("AniLiberty: «" + release.name + "» — новый торрент")
+            await downloadMagnet(best.magnet)
+            ctx.toast.success("AniLiberty: «" + release.name + "» — торрент добавлен")
 
             const next = JSON.parse(JSON.stringify(state))
             next[key] = {
@@ -115,7 +156,7 @@ function init() {
                 updated_at: best.updated_at || "",
                 description: best.description || "",
             }
-            return { state: next, changed: true }
+            return { state: next, changed: true, message: newHash === prevHash ? "Торрент добавлен повторно" : "Торрент добавлен" }
         }
 
         async function runCheck(): Promise<void> {
@@ -134,13 +175,13 @@ function init() {
                     state = result.state
                     const nextStatuses = JSON.parse(JSON.stringify(checkStatuses.get() || {}))
                     nextStatuses[key] = result.changed
-                        ? "Обновлён: " + new Date().toLocaleTimeString()
-                        : "Без изменений: " + new Date().toLocaleTimeString()
+                        ? result.message + ": " + new Date().toLocaleTimeString()
+                        : result.message + ": " + new Date().toLocaleTimeString()
                     checkStatuses.set(nextStatuses)
                     tray.update()
                 } catch(e) {
                     const nextStatuses = JSON.parse(JSON.stringify(checkStatuses.get() || {}))
-                    nextStatuses[key] = "Ошибка проверки"
+                    nextStatuses[key] = e && e.message ? "Ошибка: " + e.message : "Ошибка проверки"
                     checkStatuses.set(nextStatuses)
                     tray.update()
                 }
