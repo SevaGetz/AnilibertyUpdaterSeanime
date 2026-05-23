@@ -1,7 +1,7 @@
 {
     "id": "aniliberty-updater",
     "name": "AniLiberty Updater",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "manifestURI": "https://raw.githubusercontent.com/SevaGetz/AnilibertyUpdaterSeanime/main/aniliberty-updater.json",
     "language": "typescript",
     "type": "plugin",
@@ -15,6 +15,14 @@
     "payloadURI": "https://raw.githubusercontent.com/SevaGetz/AnilibertyUpdaterSeanime/main/aniliberty-updater.ts",
     "plugin": {
         "version": "1",
-        "permissions": {}
+        "permissions": {
+            "scopes": [],
+            "allow": {
+                "networkAccess": {
+                    "allowedDomains": ["aniliberty.top", "*.aniliberty.top"],
+                    "reasoning": "Нужно для поиска релизов и проверки торрент-обновлений через AniLiberty API."
+                }
+            }
+        }
     }
 }
