@@ -175,10 +175,9 @@ function init() {
             const err      = searchError.get()
 
             const sectionTitle = (title: string, meta?: string) =>
-                tray.flex([
-                    tray.text(title, { style: { flex: "1", fontWeight: "700", fontSize: "13px" } }),
-                    ...(meta ? [tray.text(meta, { style: { color: "var(--muted)", fontSize: "12px" } })] : []),
-                ], { gap: 8, direction: "row" })
+                tray.text(meta ? title + " (" + meta + ")" : title, {
+                    style: { fontWeight: "700", fontSize: "13px" },
+                })
 
             const releaseItems = releases.length === 0
                 ? [tray.text("Пока ничего не отслеживается", { style: { color: "var(--muted)", fontSize: "12px" } })]
@@ -187,7 +186,7 @@ function init() {
                         tray.stack([
                             tray.text(r.name, { style: { fontSize: "13px", fontWeight: "600" } }),
                             tray.text("ID " + r.id, { style: { color: "var(--muted)", fontSize: "11px" } }),
-                        ], { gap: 2, style: { flex: "1" } }),
+                        ], { gap: 2, style: { flex: "1", minWidth: "0" } }),
                         tray.button("Удалить", {
                             intent: "alert-subtle",
                             size: "xs",
@@ -204,6 +203,7 @@ function init() {
                         direction: "row",
                         style: {
                             alignItems: "center",
+                            width: "100%",
                             padding: "8px 10px",
                             border: "1px solid var(--border)",
                             borderRadius: "8px",
@@ -219,7 +219,7 @@ function init() {
                     tray.stack([
                         tray.text(title, { style: { fontSize: "13px", fontWeight: "600" } }),
                         tray.text(subtitle, { style: { color: "var(--muted)", fontSize: "11px" } }),
-                    ], { gap: 2, style: { flex: "1" } }),
+                    ], { gap: 2, style: { flex: "1", minWidth: "0" } }),
                     tray.button("Добавить", {
                         intent: "primary-subtle",
                         size: "xs",
@@ -242,6 +242,7 @@ function init() {
                     direction: "row",
                     style: {
                         alignItems: "center",
+                        width: "100%",
                         padding: "8px 10px",
                         border: "1px solid var(--border)",
                         borderRadius: "8px",
@@ -254,7 +255,7 @@ function init() {
                     tray.stack([
                         tray.text("AniLiberty Updater", { style: { fontWeight: "800", fontSize: "15px" } }),
                         tray.text(statusText.get(), { style: { color: "var(--muted)", fontSize: "12px" } }),
-                    ], { gap: 2, style: { flex: "1" } }),
+                    ], { gap: 2, style: { flex: "1", minWidth: "0" } }),
                     tray.button("Проверить", {
                         intent: "success-subtle",
                         size: "sm",
@@ -273,7 +274,7 @@ function init() {
                                 })
                         }),
                     }),
-                ], { gap: 10, direction: "row", style: { alignItems: "center" } }),
+                ], { gap: 10, direction: "row", style: { alignItems: "center", width: "100%" } }),
 
                 tray.stack([
                     sectionTitle("Поиск релиза"),
@@ -313,7 +314,7 @@ function init() {
                                     })
                             }),
                         }),
-                    ], { gap: 8, direction: "row" }),
+                    ], { gap: 8, direction: "row", style: { width: "100%" } }),
                     ...(err ? [tray.text(err, { style: { color: "var(--danger)", fontSize: "12px" } })] : []),
                     ...(resultItems.length > 0 ? [tray.stack(resultItems, { gap: 6 })] : []),
                 ], { gap: 8, style: { paddingTop: "4px" } }),
