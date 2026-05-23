@@ -18,7 +18,6 @@ function init() {
 
         // ── Constants ──────────────────────────────────────────────────────────
         const API_BASE   = "https://aniliberty.top/api/v1"
-        const SEANIME_API = "http://127.0.0.1:43211/api/v1"
         const KEY_STATE  = "aniliberty-updater:state"
         const KEY_LIST   = "aniliberty-updater:releases"
         const KEY_MINS   = "aniliberty-updater:interval"
@@ -83,24 +82,9 @@ function init() {
             return Array.isArray(d) ? d : (d && d.data ? d.data : [])
         }
 
-        async function apiSeanime(path: string, options?: { method?: string, body?: any }): Promise<any> {
-            const r = await ctx.fetch(SEANIME_API + path, {
-                method: options && options.method ? options.method : "GET",
-                headers: { "Content-Type": "application/json" },
-                body: options && options.body ? JSON.stringify(options.body) : undefined,
-                timeout: 20,
-            })
-            const d = r.json()
-            if (!r.ok || (d && d.error)) {
-                throw new Error(d && d.error ? d.error : "Seanime API: HTTP " + r.status)
-            }
-            return d && typeof d === "object" && "data" in d ? d.data : d
-        }
-
         async function getDownloadDestination(): Promise<string> {
             try {
-                const status = await apiSeanime("/status")
-                const settings = status && status.settings ? status.settings : {}
+                const settings = await ctx.appSettings.get<any>()
                 const library = settings.library || {}
                 return library.libraryPath || (library.libraryPaths && library.libraryPaths[0]) || ""
             } catch(_) {
@@ -108,15 +92,122 @@ function init() {
             }
         }
 
-        async function downloadMagnet(magnet: string): Promise<void> {
-            if (!magnet) throw new Error("У торрента нет magnet-ссылки")
-            await apiSeanime("/torrent-client/download", {
+        function buildBaseUrl(host: any, port: any, fallbackPort: number): string {
+            let h = String(host || "127.0.0.1").trim()
+            if (!h) h = "127.0.0.1"
+            if (h.indexOf("http://") === 0 || h.indexOf("https://") === 0) {
+                return h.replace(/\/+$/, "")
+            }
+            const hasPort = h.indexOf(":") >= 0 && h.indexOf("]") < h.length - 1
+            return "http://" + h + (hasPort ? "" : ":" + String(port || fallbackPort))
+        }
+
+        function cookieHeader(cookies: Record<string, string>): string {
+            const parts: string[] = []
+            for (const k in cookies) parts.push(k + "=" + cookies[k])
+            return parts.join("; ")
+        }
+
+        function base64Encode(input: string): string {
+            const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+            let out = ""
+            let i = 0
+            while (i < input.length) {
+                const c1 = input.charCodeAt(i++) & 255
+                const c2 = i < input.length ? input.charCodeAt(i++) & 255 : NaN
+                const c3 = i < input.length ? input.charCodeAt(i++) & 255 : NaN
+                out += chars.charAt(c1 >> 2)
+                out += chars.charAt(((c1 & 3) << 4) | (isNaN(c2) ? 0 : (c2 >> 4)))
+                out += isNaN(c2) ? "=" : chars.charAt(((c2 & 15) << 2) | (isNaN(c3) ? 0 : (c3 >> 6)))
+                out += isNaN(c3) ? "=" : chars.charAt(c3 & 63)
+            }
+            return out
+        }
+
+        async function addToQbittorrent(torrent: any, magnet: string, destination: string): Promise<void> {
+            const base = buildBaseUrl(torrent.qbittorrentHost, torrent.qbittorrentPort, 8080)
+            const username = torrent.qbittorrentUsername || torrent.qbittorrentUser || ""
+            const password = torrent.qbittorrentPassword || torrent.qbittorrentPass || ""
+            let cookie = ""
+
+            if (username || password) {
+                const login = await ctx.fetch(base + "/api/v2/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: "username=" + encodeURIComponent(username) + "&password=" + encodeURIComponent(password),
+                    timeout: 15,
+                })
+                const text = login.text()
+                if (!login.ok || text.indexOf("Ok.") < 0) {
+                    throw new Error("qBittorrent login failed")
+                }
+                cookie = cookieHeader(login.cookies || {})
+            }
+
+            let body = "urls=" + encodeURIComponent(magnet)
+            if (destination) body += "&savepath=" + encodeURIComponent(destination)
+            const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" }
+            if (cookie) headers["Cookie"] = cookie
+            const added = await ctx.fetch(base + "/api/v2/torrents/add", {
                 method: "POST",
-                body: {
-                    magnet: magnet,
-                    destination: await getDownloadDestination(),
+                headers,
+                body,
+                timeout: 20,
+            })
+            const text = added.text()
+            if (!added.ok || (text && text.toLowerCase().indexOf("fails") >= 0)) {
+                throw new Error("qBittorrent add failed: HTTP " + added.status)
+            }
+        }
+
+        async function addToTransmission(torrent: any, magnet: string, destination: string): Promise<void> {
+            const base = buildBaseUrl(torrent.transmissionHost, torrent.transmissionPort, 9091)
+            const username = torrent.transmissionUsername || torrent.transmissionUser || ""
+            const password = torrent.transmissionPassword || torrent.transmissionPass || ""
+            const headers: Record<string, string> = { "Content-Type": "application/json" }
+            if (username || password) {
+                headers["Authorization"] = "Basic " + base64Encode(String(username) + ":" + String(password))
+            }
+            const payload = JSON.stringify({
+                method: "torrent-add",
+                arguments: {
+                    filename: magnet,
+                    "download-dir": destination || undefined,
                 },
             })
+            let r = await ctx.fetch(base + "/transmission/rpc", {
+                method: "POST",
+                headers,
+                body: payload,
+                timeout: 20,
+            })
+            const sessionId = r.headers["X-Transmission-Session-Id"] || r.headers["x-transmission-session-id"]
+            if (r.status === 409 && sessionId) {
+                headers["X-Transmission-Session-Id"] = sessionId
+                r = await ctx.fetch(base + "/transmission/rpc", {
+                    method: "POST",
+                    headers,
+                    body: payload,
+                    timeout: 20,
+                })
+            }
+            const d = r.json()
+            if (!r.ok || (d && d.result && d.result !== "success")) {
+                throw new Error("Transmission add failed: " + (d && d.result ? d.result : "HTTP " + r.status))
+            }
+        }
+
+        async function downloadMagnet(magnet: string): Promise<void> {
+            if (!magnet) throw new Error("У торрента нет magnet-ссылки")
+            const settings = await ctx.appSettings.get<any>()
+            const torrent = settings && settings.torrent ? settings.torrent : {}
+            const client = String(torrent.defaultTorrentClient || "").toLowerCase()
+            const destination = await getDownloadDestination()
+            if (client.indexOf("transmission") >= 0) {
+                await addToTransmission(torrent, magnet, destination)
+                return
+            }
+            await addToQbittorrent(torrent, magnet, destination)
         }
 
         // ── Core check ────────────────────────────────────────────────────────
